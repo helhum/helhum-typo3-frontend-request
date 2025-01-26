@@ -13,6 +13,7 @@ use TYPO3\CMS\Core\Http\Stream;
 use TYPO3\CMS\Core\Session\Backend\SessionBackendInterface;
 use TYPO3\CMS\Core\Session\SessionManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Frontend\Authentication\FrontendUserAuthentication;
 
 class Typo3Client
@@ -45,7 +46,14 @@ class Typo3Client
         $arguments = [
             'documentRoot' => getenv('TYPO3_PATH_WEB') ?: rtrim('/', Environment::getPublicPath()),
             'requestUrl' => (string)$request->getUri(),
-            'headers' => $request->getHeaders(),
+            'headers' => array_merge(
+                $request->getHeaders(),
+                [
+                    'Accept-Encoding' => [
+                        'identity',
+                    ],
+                ]
+            ),
         ];
         $code = str_replace('\'{arguments}\'', var_export($arguments, true), $template);
         $process = new PhpProcess($code, null, null, 0, $this->phpBinary !== null ? [$this->phpBinary] : null);
@@ -57,8 +65,16 @@ class Typo3Client
             $this->ensureSessionRemoved();
         }
 
+        $content = $process->getOutput();
+        if ($GLOBALS['TYPO3_CONF_VARS']['FE']['compressionLevel']
+            && extension_loaded('zlib')
+            && MathUtility::canBeInterpretedAsInteger($GLOBALS['TYPO3_CONF_VARS']['FE']['compressionLevel'])
+        ) {
+            $content = zlib_decode($content) ?: $content;
+        }
+
         $body = new Stream('php://temp', 'rw');
-        $body->write($process->getOutput());
+        $body->write($content);
         $body->rewind();
 
         return new HtmlResponse((string)$body);
